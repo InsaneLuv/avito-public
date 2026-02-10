@@ -5,7 +5,8 @@ from typing import Any, Callable, get_type_hints
 from httpx import AsyncClient
 from pydantic import BaseModel
 
-from app.models.avito import ChatsPayloadFilter, ChatsResponse, Message, MessagesResponse, SendMessagePayload, \
+from app.models.avito import ChatsPayloadFilter, ChatsResponse, Message, MessagesResponse, SendMessage, \
+    SendMessagePayload, \
     SimpleActionResponse, \
     SubscribtionsResponse, UserData
 
@@ -44,7 +45,6 @@ class AvitoBase:
         self._token_expires_at = None
         self.user_data: dict | None = None
         self.httpx_client = AsyncClient(base_url="https://api.avito.ru", http2=True)
-
 
     async def update_auth(self):
         resp = await self.httpx_client.post(
@@ -113,7 +113,6 @@ class AvitoBase:
         return resp.json()
 
 
-
 class AvitoModels(AvitoBase):
     def __init__(self, client_id: str, client_secret: str):
         super().__init__(client_id, client_secret)
@@ -150,3 +149,19 @@ class AvitoModels(AvitoBase):
     @validate_response
     async def send_message(self, chat_id: str, payload: SendMessagePayload, user_id: int | None = None) -> Message:
         return await super().send_message(user_id if user_id else self.user_data.id, chat_id, payload.model_dump())
+
+
+class Avito(AvitoModels):
+    def __init__(self, client_id: str, client_secret: str):
+        super().__init__(client_id, client_secret)
+        self.user_data: UserData | None = None
+
+    async def send_message(self, chat_id: str, text: str, user_id: int | None = None, ai_mark: bool = True) -> Message:
+        return await super().send_message(
+            chat_id,
+            SendMessagePayload(
+                message=SendMessage(
+                    text=text + "‎" if ai_mark else ""
+                )
+            )
+        )

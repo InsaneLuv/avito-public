@@ -147,7 +147,6 @@ class ChatsPayloadFilter(BaseModel):
     offset: int = 0
 
 
-# {'email': 'maxist26@mail.ru', 'id': 32963121, 'name': '«М-МЕБЕЛЬ»', 'phone': '79614629296', 'phones': ['79614629296'], 'profile_url': 'https://www.avito.ru/user/532102a6569bfe598240efa2ec958033/profile'}
 class UserData(BaseModel):
     email: str
     id: int
