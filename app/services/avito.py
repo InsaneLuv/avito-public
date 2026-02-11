@@ -9,7 +9,7 @@ from app.models.avito import ChatsPayloadFilter, ChatsResponse, Message, Message
     SendMessagePayload, \
     SimpleActionResponse, \
     SubscribtionsResponse, UserData
-
+from openai import AsyncOpenAI
 
 def with_token_refresh(func: Callable) -> Callable:
     """Декоратор для автоматического обновления токена перед выполнением метода."""
@@ -165,3 +165,17 @@ class Avito(AvitoModels):
                 )
             )
         )
+
+class AvitoBL:
+    def __init__(self, avito: Avito, openai: AsyncOpenAI, prompt: str):
+        self.avito = avito
+        self.openai = openai
+        self.prompt = prompt
+
+    async def meta(self):
+        response = await self.openai.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[]
+        )
+
+        return response.choices[0].message.content
