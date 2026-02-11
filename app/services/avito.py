@@ -1,15 +1,18 @@
+import hashlib
+import json
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, Callable, get_type_hints
 
 from httpx import AsyncClient
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
-from app.models.avito import ChatsPayloadFilter, ChatsResponse, Message, MessagesResponse, SendMessage, \
+from app.models.avito import ChatsPayloadFilter, ChatsResponse, ChatTypeEnum, Message, MessagesResponse, SendMessage, \
     SendMessagePayload, \
     SimpleActionResponse, \
     SubscribtionsResponse, UserData
-from openai import AsyncOpenAI
+
 
 def with_token_refresh(func: Callable) -> Callable:
     """Декоратор для автоматического обновления токена перед выполнением метода."""
@@ -166,16 +169,128 @@ class Avito(AvitoModels):
             )
         )
 
+    async def chats(
+            self,
+            item_ids: list[int] = None,
+            unread_only: bool = False,
+            chat_types: list[ChatTypeEnum] | None = None,
+            limit: int = 100,
+            offset: int = 0
+    ) -> ChatsResponse:
+        return await super().get_chats(
+            filt=ChatsPayloadFilter(
+                item_ids=item_ids,
+                unread_only=unread_only,
+                chat_types=chat_types,
+                limit=limit,
+                offset=offset
+            )
+        )
+
+
 class AvitoBL:
-    def __init__(self, avito: Avito, openai: AsyncOpenAI, prompt: str):
+    def __init__(self, avito: Avito, openai: AsyncOpenAI, prompt: str, cache_ttl_minutes: int = 60):
         self.avito = avito
         self.openai = openai
         self.prompt = prompt
+        self.cache = {}
+        self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
 
-    async def meta(self):
+    def build_ai_mesages(self, messages: list[Message]):
+        conversation_history = []
+        for msg in messages:
+            conversation_history.append(msg.for_ai())
+        conversation_history.reverse()
+        return conversation_history
+
+    def _get_cache_key(self, chat_id: str, messages: list[Message]) -> str:
+        message_contents = []
+        for msg in messages:
+            if hasattr(msg, 'content') and hasattr(msg.content, 'text'):
+                message_contents.append(f"{msg.direction}:{msg.content.text}")
+        cache_string = f"{chat_id}:{self.prompt}:{':'.join(message_contents[-5:])}"  # Последние 5 сообщений
+        return hashlib.md5(cache_string.encode('utf-8')).hexdigest()
+
+    def _clean_old_cache(self):
+        current_time = datetime.now()
+        expired_keys = [
+            key for key, value in self.cache.items()
+            if current_time - value["timestamp"] > self.cache_ttl
+        ]
+        for key in expired_keys:
+            del self.cache[key]
+
+    async def _get_cached_or_generate_response(self, chat_id: str, messages: list[Message]) -> str:
+        self._clean_old_cache()
+        cache_key = self._get_cache_key(chat_id, messages)
+        if cache_key in self.cache:
+            print(f"📦 Используется кэшированный ответ для чата {chat_id[:8]}...")
+            return self.cache[cache_key]["response"]
+
+        print(f"🔄 Генерация нового ответа для чата {chat_id[:8]}...")
+        ai_messages = self.build_ai_mesages(messages)
+        ai_messages = [{"role": "system", "content": self.prompt}] + ai_messages
+
         response = await self.openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[]
+            model="gpt-4o-mini",
+            messages=ai_messages,
         )
 
-        return response.choices[0].message.content
+        assistant_resp = response.choices[0].message.content
+
+        self.cache[cache_key] = {
+            "response": assistant_resp,
+            "timestamp": datetime.now()
+        }
+
+        print(f"💾 Кэш сохранен. Всего в кэше: {len(self.cache)} записей")
+        return assistant_resp
+
+    async def meta(self):
+        proc_chat_ids: list[str] = []
+
+        response = await self.avito.chats(chat_types=[ChatTypeEnum.u2u, ChatTypeEnum.u2i], limit=10)
+        for chat in response.chats:
+            if chat.last_message.direction == "in":
+                proc_chat_ids.append(chat.id)
+
+        print(f"Неотвеченные чаты: {proc_chat_ids}")
+
+        ai_chat_ids: list[str] = []
+        chats: dict[str, list[Message]] = {}
+
+        for chat_id in proc_chat_ids:
+            response = await self.avito.get_chat_messages(chat_id)
+            chats[chat_id] = response.messages
+
+        for chat_id, messages in chats.items():
+            for message in messages:
+                if message.direction == "out" and "‎" in message.content.text:
+                    ai_chat_ids.append(chat_id)
+                    break
+
+        print(f"Ai чаты для обработки: {ai_chat_ids}")
+
+        for chat_id in ai_chat_ids:
+            messages = chats.get(chat_id)
+            if not messages:
+                continue
+
+            assistant_resp = await self._get_cached_or_generate_response(chat_id, messages)
+
+            await self.avito.send_message(chat_id, assistant_resp)
+
+    # Дополнительные методы для управления кэшем
+    def get_cache_stats(self) -> dict:
+        """Получить статистику кэша"""
+        self._clean_old_cache()
+        return {
+            "total_entries": len(self.cache),
+            "cache_hits": sum(1 for v in self.cache.values() if "hits" in v) if self.cache else 0,
+            "cache_size_mb": sum(len(json.dumps(v)) for v in self.cache.values()) / 1024 / 1024
+        }
+
+    def clear_cache(self):
+        """Очистить весь кэш"""
+        self.cache.clear()
+        print("🧹 Кэш полностью очищен")

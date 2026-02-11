@@ -102,6 +102,28 @@ class Message(BaseModel):
     id: str
     type: str
 
+    def for_ai(self):
+        text = self.content.text
+        link = self.content.link
+        voice = self.content.voice
+        picture = self.content.image
+
+        content = None
+
+        if text:
+            content = text
+        if link:
+            content = link.text
+        if voice:
+            content = "Прикрепил аудиосообщение (невозможно прочитать)"
+        if picture:
+            content = "Прикрепил картинку (невозможно прочитать)"
+
+        return {
+            "role": "user" if self.direction == "in" else "assistant",
+            "content": content,
+        }
+
 
 class Avatar(BaseModel):
     default: str
@@ -142,7 +164,7 @@ class ChatTypeEnum(enum.StrEnum):
 class ChatsPayloadFilter(BaseModel):
     item_ids: list[int] | None = Field(default=None)
     unread_only: bool = False
-    chat_types: list[ChatTypeEnum] = Field(default_factory=lambda: [ChatTypeEnum.u2i])
+    chat_types: list[ChatTypeEnum] | None = Field(default=None)
     limit: int = 100
     offset: int = 0
 
@@ -172,6 +194,7 @@ class Subscribtion(BaseModel):
 
 class SubscribtionsResponse(BaseModel):
     subscriptions: list[Subscribtion] | None = Field(default_factory=list)
+
 
 class SendMessage(BaseModel):
     text: str
