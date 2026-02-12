@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Tuple
 
 from pydantic_settings import BaseSettings
 
-class AppSettings(BaseSettings):
+class AppBase(BaseSettings):
     debug: bool = True
     docs_url: str = "/docs"
     openapi_prefix: str = ""
