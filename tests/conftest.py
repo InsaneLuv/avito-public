@@ -1,7 +1,7 @@
 import os
 import sys
 
-from app.prompts.read import PromptReader
+from app.prompts.read import PromptEditor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -62,7 +62,7 @@ async def openai(openai_api_token, httpx_client_proxied):
 
 @pytest.fixture(scope="session")
 async def prompts_reader():
-    client = PromptReader()
+    client = PromptEditor()
     return client
 
 @pytest.fixture(scope="session")

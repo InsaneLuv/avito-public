@@ -3,7 +3,7 @@ from pathlib import Path
 import aiofiles
 
 
-class PromptReader:
+class PromptEditor:
     def __init__(self, base_path: str = None):
         if base_path is None:
             current_file = Path(__file__).resolve()
