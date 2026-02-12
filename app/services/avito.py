@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -246,43 +247,77 @@ class AvitoBL:
         print(f"💾 Кэш сохранен. Всего в кэше: {len(self.cache)} записей")
         return assistant_resp
 
-    async def meta(self):
+    async def not_answered_chat_ids(self) -> list[str]:
         proc_chat_ids: list[str] = []
 
-        response = await self.avito.chats(chat_types=[ChatTypeEnum.u2u, ChatTypeEnum.u2i], limit=10)
+        response = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
+
         for chat in response.chats:
             if chat.last_message.direction == "in":
                 proc_chat_ids.append(chat.id)
 
-        print(f"Неотвеченные чаты: {proc_chat_ids}")
+        return proc_chat_ids
 
-        ai_chat_ids: list[str] = []
-        chats: dict[str, list[Message]] = {}
+    async def assert_chat_messages(self, chat_id: str):
+        r = await self.avito.get_chat_messages(chat_id)
+        return chat_id, r
 
-        for chat_id in proc_chat_ids:
-            response = await self.avito.get_chat_messages(chat_id)
-            chats[chat_id] = response.messages
+    async def messages_map(self, chat_ids: list[str]):
+        mmap = {}
 
-        for chat_id, messages in chats.items():
-            for message in messages:
-                if message.direction == "out" and "‎" in message.content.text:
-                    ai_chat_ids.append(chat_id)
-                    break
+        tasks = []
 
-        print(f"Ai чаты для обработки: {ai_chat_ids}")
+        for chat_id in chat_ids:
+            tasks.append(self.assert_chat_messages(chat_id))
 
-        for chat_id in ai_chat_ids:
-            messages = chats.get(chat_id)
+        resp = await asyncio.gather(*tasks)
+
+        for chat_id, messages_resp in resp:
+            mmap[chat_id] = messages_resp.messages
+
+        return mmap
+
+    def chats_to_assist(self, chats_map: dict[str, list[Message]]) -> dict[str, list[Message]]:
+        r = {}
+
+        ai_assistant_required = True
+
+        for chat_id, messages in chats_map.items():
+            # for message in messages:
+            #     # if message.direction == "out":
+            #     if message.content.text and "‎" not in message.content.text:
+            #         ai_assistant_required = False
+            #
+            # if ai_assistant_required:
+            if chat_id == "u2i-5WcUMoXTXMhza~TZzPSHJA":
+                r[chat_id] = messages
+
+        return r
+
+    async def answer_chat(self, chat_id: str, messages: list[Message]) -> str:
+        print(f"Юзер спросил: {messages[0].for_ai()}")
+        assistant_resp = await self._get_cached_or_generate_response(chat_id, messages)
+        print(f"Ассистент ответил: {assistant_resp}")
+        await self.avito.send_message(chat_id, assistant_resp)
+        return assistant_resp
+
+    async def answer_chats(self, chats_map: dict[str, list[Message]]):
+        tasks = []
+        for chat_id, messages in chats_map.items():
             if not messages:
                 continue
+            tasks.append(self.answer_chat(chat_id, messages))
+        return await asyncio.gather(*tasks)
 
-            assistant_resp = await self._get_cached_or_generate_response(chat_id, messages)
+    async def meta(self):
+        proc_chat_ids = await self.not_answered_chat_ids()
+        print(f"Неотвеченные чаты: {proc_chat_ids}")
+        chats: dict[str, list[Message]] = await self.messages_map(proc_chat_ids)
+        chats_to_assist = self.chats_to_assist(chats)
+        print(f"Ai чаты для обработки: {chats_to_assist.keys()}")
+        await self.answer_chats(chats_to_assist)
 
-            await self.avito.send_message(chat_id, assistant_resp)
-
-    # Дополнительные методы для управления кэшем
     def get_cache_stats(self) -> dict:
-        """Получить статистику кэша"""
         self._clean_old_cache()
         return {
             "total_entries": len(self.cache),
@@ -291,6 +326,5 @@ class AvitoBL:
         }
 
     def clear_cache(self):
-        """Очистить весь кэш"""
         self.cache.clear()
         print("🧹 Кэш полностью очищен")
