@@ -14,7 +14,7 @@ async def _(code: str, settings: FromDishka[AppSettings]):
     Получение `активного` промпта по коду.
     """
 
-    if code != settings.app.SECUTITY_CODE.get_secret_value():
+    if code != settings.app.SECURITY_CODE.get_secret_value():
         return {"error": "Ошибка! Неверный код доступа"}
     return "Промпт текст тест"
 
@@ -24,7 +24,7 @@ async def _(code: str, settings: FromDishka[AppSettings], file: UploadFile = Fil
     """
     Замена `текущего` промпта новым.
     """
-    if code != settings.app.SECUTITY_CODE.get_secret_value():
+    if code != settings.app.SECURITY_CODE.get_secret_value():
         return {"error": "Ошибка! Неверный код доступа"}
 
     if not file.filename.endswith('.md') and not file.filename.endswith('.txt'):
