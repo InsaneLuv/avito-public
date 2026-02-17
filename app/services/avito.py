@@ -190,12 +190,24 @@ class Avito(AvitoModels):
 
 
 class AvitoBL:
-    def __init__(self, avito: Avito, openai: AsyncOpenAI, prompt: str, cache_ttl_minutes: int = 60):
+    def __init__(
+            self,
+            avito: Avito,
+            openai: AsyncOpenAI,
+            prompt: str,
+            cache_ttl_minutes: int = 60,
+            limits_service=None,
+            bot_uuid: str = None
+    ):
         self.avito = avito
         self.openai = openai
         self.prompt = prompt
         self.cache = {}
         self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
+        self.limits_service = limits_service
+        self.bot_uuid = bot_uuid
+        self._incremented_chats: set[str] = set()
+        self.ai_mark = "‎"
 
     def build_ai_mesages(self, messages: list[Message]):
         conversation_history = []
@@ -277,26 +289,44 @@ class AvitoBL:
 
         return mmap
 
-    def chats_to_assist(self, chats_map: dict[str, list[Message]]) -> dict[str, list[Message]]:
+    async def chats_to_assist(self, chats_map: dict[str, list[Message]]) -> dict[str, list[Message]]:
         r = {}
-
-        ai_assistant_required = True
-
         for chat_id, messages in chats_map.items():
-            # for message in messages:
-            #     # if message.direction == "out":
-            #     if message.content.text and "‎" not in message.content.text:
-            #         ai_assistant_required = False
-            #
-            # if ai_assistant_required:
-            if chat_id == "u2i-5WcUMoXTXMhza~TZzPSHJA":
-                r[chat_id] = messages
+            user_intercepted = False
+            for msg in messages:
+                if msg.direction == "out":
+                    if msg.content.text and self.ai_mark not in msg.content.text:
+                        user_intercepted = True
+                        break
 
+            if user_intercepted:
+                print(
+                    f"🚫 Чат {chat_id[:8]}... пропущен - пользователь уже ответил"
+                )
+                continue
+
+            ai_assisted = False
+            for msg in messages:
+                if msg.direction == "out":
+                    if msg.content.text and self.ai_mark in msg.content.text:
+                        ai_assisted = True
+                        break
+
+            if ai_assisted:
+                r[chat_id] = messages
+            else:
+                bot = await self.limits_service.get_bot(self.bot_uuid)
+                can_assist_new_chat = await self.limits_service.can_assist_new_chat(bot)
+                if can_assist_new_chat:
+                    success, count = await self.limits_service.increment_usage(self.bot_uuid, chat_id)
+                    if success:
+                        r[chat_id] = messages
         return r
 
     async def answer_chat(self, chat_id: str, messages: list[Message]) -> str:
         print(f"Юзер спросил: {messages[0].for_ai()}")
-        assistant_resp = await self._get_cached_or_generate_response(chat_id, messages)
+        # assistant_resp = await self._get_cached_or_generate_response(chat_id, messages)
+        assistant_resp = "TEST"
         print(f"Ассистент ответил: {assistant_resp}")
         await self.avito.send_message(chat_id, assistant_resp)
         return assistant_resp
@@ -313,7 +343,7 @@ class AvitoBL:
         proc_chat_ids = await self.not_answered_chat_ids()
         print(f"Неотвеченные чаты: {proc_chat_ids}")
         chats: dict[str, list[Message]] = await self.messages_map(proc_chat_ids)
-        chats_to_assist = self.chats_to_assist(chats)
+        chats_to_assist = await self.chats_to_assist(chats)
         print(f"Ai чаты для обработки: {chats_to_assist.keys()}")
         await self.answer_chats(chats_to_assist)
 

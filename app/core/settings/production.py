@@ -17,3 +17,5 @@ class ProdAppSettings(AppBase):
     SQUID_PROXY_PASSWORD: Secret[str] = Field()
     SECURITY_CODE: Secret[str] = Field()
     BOT_UUID: Secret[str] = Field()
+
+    LIMITS_SERVICE_URL: str = Field(default="http://127.0.0.1:8000", description="URL sub-service для управления лимитами")
