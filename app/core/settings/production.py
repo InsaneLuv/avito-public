@@ -15,4 +15,5 @@ class ProdAppSettings(AppBase):
     SQUID_PROXY_PORT: Secret[int] = Field()
     SQUID_PROXY_USER: Secret[str] = Field()
     SQUID_PROXY_PASSWORD: Secret[str] = Field()
-    SECUTITY_CODE: Secret[str] = Field()
+    SECURITY_CODE: Secret[str] = Field()
+    BOT_UUID: Secret[str] = Field()
