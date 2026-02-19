@@ -3,16 +3,17 @@ import hashlib
 import json
 from datetime import datetime, timedelta
 from functools import wraps
-from typing import Any, Callable, get_type_hints
+from typing import Any, Callable, get_type_hints, get_args, Union, get_origin
 
 from httpx import AsyncClient
 from openai import AsyncOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.models.avito import ChatsPayloadFilter, ChatsResponse, ChatTypeEnum, Message, MessagesResponse, SendMessage, \
     SendMessagePayload, \
     SimpleActionResponse, \
-    SubscribtionsResponse, UserData
+    SubscribtionsResponse, UserData, Chat, FailedResponse
+from app.services.limits import LimitsUOW
 
 
 def with_token_refresh(func: Callable) -> Callable:
@@ -32,10 +33,33 @@ def validate_response(func):
         data = await func(self, *args, **kwargs)
         type_hints = get_type_hints(func)
         return_type = type_hints.get('return')
-        if return_type and issubclass(return_type, BaseModel):
+
+        if return_type is None:
+            return data
+        origin = get_origin(return_type)
+        if origin is Union:
+            types_to_try = get_args(return_type)
+            for t in types_to_try:
+                if isinstance(data, t):
+                    return data
+            last_error = None
+            for t in types_to_try:
+                if issubclass(t, BaseModel):
+                    try:
+                        return t.model_validate(data)
+                    except ValidationError as e:
+                        last_error = e
+                        continue
+                elif isinstance(data, t):
+                    return data
+            if last_error:
+                raise ValueError(f"Data validation failed for all types in Union: {last_error}")
+            raise ValueError(f"Data {data} does not match any type in {return_type}")
+        elif issubclass(return_type, BaseModel):
             if isinstance(data, return_type):
                 return data
             return return_type.model_validate(data)
+
         return data
 
     return wrapper
@@ -76,7 +100,7 @@ class AvitoBase:
             await self.update_auth()
 
     @with_token_refresh
-    async def get_user_data(self) -> int:
+    async def get_user_data(self) -> dict | None:
         resp = await self.httpx_client.get("/core/v1/accounts/self")
         resp.raise_for_status()
         self.user_data = resp.json()
@@ -134,7 +158,7 @@ class AvitoModels(AvitoBase):
         return await super().get_chats(user_id=user_id, filt=filt.model_dump() if filt else filt)
 
     @validate_response
-    async def get_chat_messages(self, chat_id: str, user_id: int | None = None) -> MessagesResponse:
+    async def get_chat_messages(self, chat_id: str, user_id: int | None = None) -> MessagesResponse | FailedResponse:
         user_id = user_id or (self.user_data.id if self.user_data else None)
         return await super().get_chat_messages(chat_id=chat_id, user_id=user_id)
 
@@ -195,166 +219,61 @@ class AvitoBL:
             avito: Avito,
             openai: AsyncOpenAI,
             prompt: str,
-            cache_ttl_minutes: int = 60,
             limits_service=None,
-            bot_uuid: str = None
+            bot_uuid: str = None,
     ):
         self.avito = avito
         self.openai = openai
         self.prompt = prompt
-        self.cache = {}
-        self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
-        self.limits_service = limits_service
+        self.limits: LimitsUOW = limits_service
         self.bot_uuid = bot_uuid
-        self._incremented_chats: set[str] = set()
-        self.ai_mark = "‎"
 
-    def build_ai_mesages(self, messages: list[Message]):
-        conversation_history = []
-        for msg in messages:
-            conversation_history.append(msg.for_ai())
-        conversation_history.reverse()
-        return conversation_history
+    async def not_answered_chats(self) -> list[Chat]:
+        r = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
+        return r.not_answered_chats
 
-    def _get_cache_key(self, chat_id: str, messages: list[Message]) -> str:
-        message_contents = []
-        for msg in messages:
-            if hasattr(msg, 'content') and hasattr(msg.content, 'text'):
-                message_contents.append(f"{msg.direction}:{msg.content.text}")
-        cache_string = f"{chat_id}:{self.prompt}:{':'.join(message_contents[-5:])}"  # Последние 5 сообщений
-        return hashlib.md5(cache_string.encode('utf-8')).hexdigest()
+    async def enrich_message(self, chat: Chat) -> Chat:
+        r = await self.avito.get_chat_messages(chat.id)
+        if isinstance(r, MessagesResponse):
+            chat.messages = r.messages
+        return chat
 
-    def _clean_old_cache(self):
-        current_time = datetime.now()
-        expired_keys = [
-            key for key, value in self.cache.items()
-            if current_time - value["timestamp"] > self.cache_ttl
-        ]
-        for key in expired_keys:
-            del self.cache[key]
-
-    async def _get_cached_or_generate_response(self, chat_id: str, messages: list[Message]) -> str:
-        self._clean_old_cache()
-        cache_key = self._get_cache_key(chat_id, messages)
-        if cache_key in self.cache:
-            print(f"📦 Используется кэшированный ответ для чата {chat_id[:8]}...")
-            return self.cache[cache_key]["response"]
-
-        print(f"🔄 Генерация нового ответа для чата {chat_id[:8]}...")
-        ai_messages = self.build_ai_mesages(messages)
-        ai_messages = [{"role": "system", "content": self.prompt}] + ai_messages
-
-        response = await self.openai.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=ai_messages,
-        )
-
-        assistant_resp = response.choices[0].message.content
-
-        self.cache[cache_key] = {
-            "response": assistant_resp,
-            "timestamp": datetime.now()
-        }
-
-        print(f"💾 Кэш сохранен. Всего в кэше: {len(self.cache)} записей")
-        return assistant_resp
-
-    async def not_answered_chat_ids(self) -> list[str]:
-        proc_chat_ids: list[str] = []
-
-        response = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
-
-        for chat in response.chats:
-            if chat.last_message.direction == "in":
-                proc_chat_ids.append(chat.id)
-
-        return proc_chat_ids
-
-    async def assert_chat_messages(self, chat_id: str):
-        r = await self.avito.get_chat_messages(chat_id)
-        return chat_id, r
-
-    async def messages_map(self, chat_ids: list[str]):
-        mmap = {}
-
-        tasks = []
-
-        for chat_id in chat_ids:
-            tasks.append(self.assert_chat_messages(chat_id))
-
-        resp = await asyncio.gather(*tasks)
-
-        for chat_id, messages_resp in resp:
-            mmap[chat_id] = messages_resp.messages
-
-        return mmap
-
-    async def chats_to_assist(self, chats_map: dict[str, list[Message]]) -> dict[str, list[Message]]:
-        r = {}
-        for chat_id, messages in chats_map.items():
-            user_intercepted = False
-            for msg in messages:
-                if msg.direction == "out":
-                    if msg.content.text and self.ai_mark not in msg.content.text:
-                        user_intercepted = True
-                        break
-
-            if user_intercepted:
-                print(
-                    f"🚫 Чат {chat_id[:8]}... пропущен - пользователь уже ответил"
-                )
-                continue
-
-            ai_assisted = False
-            for msg in messages:
-                if msg.direction == "out":
-                    if msg.content.text and self.ai_mark in msg.content.text:
-                        ai_assisted = True
-                        break
-
-            if ai_assisted:
-                r[chat_id] = messages
-            else:
-                bot = await self.limits_service.get_bot(self.bot_uuid)
-                can_assist_new_chat = await self.limits_service.can_assist_new_chat(bot)
-                if can_assist_new_chat:
-                    success, count = await self.limits_service.increment_usage(self.bot_uuid, chat_id)
-                    if success:
-                        r[chat_id] = messages
-        return r
-
-    async def answer_chat(self, chat_id: str, messages: list[Message]) -> str:
-        print(f"Юзер спросил: {messages[0].for_ai()}")
-        # assistant_resp = await self._get_cached_or_generate_response(chat_id, messages)
-        assistant_resp = "TEST"
-        print(f"Ассистент ответил: {assistant_resp}")
-        await self.avito.send_message(chat_id, assistant_resp)
-        return assistant_resp
-
-    async def answer_chats(self, chats_map: dict[str, list[Message]]):
-        tasks = []
-        for chat_id, messages in chats_map.items():
-            if not messages:
-                continue
-            tasks.append(self.answer_chat(chat_id, messages))
-        return await asyncio.gather(*tasks)
+    async def enrich_messages(self, chats: list[Chat]) -> list[Chat]:
+        tasks = [self.enrich_message(chat) for chat in chats]
+        await asyncio.gather(*tasks)
+        return chats
 
     async def meta(self):
-        proc_chat_ids = await self.not_answered_chat_ids()
-        print(f"Неотвеченные чаты: {proc_chat_ids}")
-        chats: dict[str, list[Message]] = await self.messages_map(proc_chat_ids)
-        chats_to_assist = await self.chats_to_assist(chats)
-        print(f"Ai чаты для обработки: {chats_to_assist.keys()}")
-        await self.answer_chats(chats_to_assist)
+        not_answered_chats = await self.not_answered_chats()
+        for chat in not_answered_chats:
+            print(
+                f"{chat.user.name} ({chat.user.id}): {chat.id}"
+            )
+            print(chat)
+        if not_answered_chats:
+            print(
+                f"Всего неотвеченных чатов: {len(not_answered_chats)}"
+            )
+        await self.enrich_messages(not_answered_chats)
 
-    def get_cache_stats(self) -> dict:
-        self._clean_old_cache()
-        return {
-            "total_entries": len(self.cache),
-            "cache_hits": sum(1 for v in self.cache.values() if "hits" in v) if self.cache else 0,
-            "cache_size_mb": sum(len(json.dumps(v)) for v in self.cache.values()) / 1024 / 1024
-        }
+        enriched = [chat for chat in not_answered_chats if chat.enriched]
 
-    def clear_cache(self):
-        self.cache.clear()
-        print("🧹 Кэш полностью очищен")
+        print(
+            f"Всего обогащенных чатов: {len(enriched)}"
+        )
+
+        ai_assisted = [chat for chat in enriched if chat.ai_assisted]
+        ai_assist_required = [chat for chat in enriched if chat.ai_assist_required]
+
+        if ai_assist_required:
+            print(
+                f"Чатов, впервые требующих ответа ИИ: {len(ai_assist_required)}"
+            )
+            bot = await self.limits.get_bot()
+            if not bot.remain:
+                print(f"Закончились лимиты на ответы ИИ.")
+
+        for chat in ai_assisted:
+            print(
+                f"{chat.user.name} ({chat.user.id}): {chat.id}"
+            )
