@@ -1,12 +1,12 @@
 from contextlib import asynccontextmanager
 
 from dishka import make_async_container
-from dishka.integrations.fastapi import setup_dishka
+from dishka.integrations.fastapi import setup_dishka, FastapiProvider
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from app.core.config import get_app_settings
-from app.core.providers import ConfigProvider
+from app.core.providers import ConfigProvider, ServiceProvider
 
 
 @asynccontextmanager
@@ -17,6 +17,8 @@ async def lifespan(app: FastAPI):
 def setup_dependencies(app: FastAPI):
     container = make_async_container(
         ConfigProvider("prod"),
+        ServiceProvider(),
+        FastapiProvider()
     )
     setup_dishka(container, app)
     return container
