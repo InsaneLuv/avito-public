@@ -15,7 +15,18 @@ class PromptEditor:
             raise FileNotFoundError(f"Directory not found: {self.base_path}")
         print(f"PromptReader initialized with base path: {self.base_path}")
 
-    async def read_text(self, filename: str, subdir: str = "") -> str:
+    def get_file(self, filename: str = "text.md", subdir: str = "") -> Path:
+        if subdir:
+            subdir = subdir.strip('/\\')
+            file_path = self.base_path / subdir / filename
+        else:
+            file_path = self.base_path / filename
+        file_path = file_path.resolve()
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {file_path}")
+        return file_path
+
+    async def read_text(self, filename: str = "text.md", subdir: str = "") -> str:
         if subdir:
             subdir = subdir.strip('/\\')
             file_path = self.base_path / subdir / filename
@@ -38,3 +49,18 @@ class PromptEditor:
                 return content
         except Exception as e:
             raise IOError(f"Error reading file {file_path}: {e}")
+
+    async def write_text(self, content: str, filename: str = "text.md", subdir: str = ""):
+        if subdir:
+            subdir = subdir.strip('/\\')
+            file_path = self.base_path / subdir / filename
+        else:
+            file_path = self.base_path / filename
+
+        file_path = file_path.resolve()
+
+        try:
+            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+                await f.write(content)
+        except Exception as e:
+            raise IOError(f"Error writing file {file_path}: {e}")
