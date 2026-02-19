@@ -3,7 +3,7 @@ from uuid import UUID
 
 import httpx
 
-from app.models.limits import BotConfig, BotConfigWithEditable, OnlyEditable
+from app.models.limits import BotConfigWithEditable
 
 
 class LimitsService:
@@ -12,7 +12,7 @@ class LimitsService:
     Общается с sub-service по HTTP (localhost:8000).
     """
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8000"):
+    def __init__(self, base_url: str = "http://127.0.0.1:8923"):
         self.base_url = base_url.rstrip("/")
         self._http_client: httpx.AsyncClient | None = None
 
@@ -37,51 +37,29 @@ class LimitsService:
         except httpx.HTTPError:
             return None
 
-    async def update_bot(self, uuid: UUID, updates: OnlyEditable) -> Optional[BotConfigWithEditable]:
-        """Обновить редактируемые поля бота."""
-        try:
-            payload = updates.model_dump(exclude_unset=True)
-            response = await self.http_client.post(f"/bot/{uuid}", json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return BotConfigWithEditable(**data)
-        except httpx.HTTPError:
-            return None
+    async def increment_usage(self, uuid: UUID) -> Optional[BotConfigWithEditable]:
+        response = await self.http_client.patch(f"/bot/{uuid}/count/increment", )
+        response.raise_for_status()
+        data = response.json()
+        return BotConfigWithEditable(**data)
 
-    async def can_assist_new_chat(self, bot: BotConfigWithEditable) -> bool:
-        """
-        Проверить, можно ли подключить ИИ-ассистента к новому чату.
-        Возвращает True, если есть доступные лимиты.
-        """
-        return bot.remain > 0
+    async def decrement_usage(self, uuid: UUID) -> Optional[BotConfigWithEditable]:
+        response = await self.http_client.patch(f"/bot/{uuid}/count/decrement", )
+        response.raise_for_status()
+        data = response.json()
+        return BotConfigWithEditable(**data)
 
-    async def increment_usage(self, bot: BotConfigWithEditable) -> tuple[bool, int]:
-        """
-        Инкрементировать счётчик использования для бота.
-        
-        Важно: 1 чат = 1 использование.
-        Чат отмечается как использованный при первом ответе.
-        
-        Возвращает:
-        - (True, новый_count) если инкремент успешен
-        - (False, текущий_count) если уже было инкрементировано
-        """
 
-        # Проверяем, не был ли чат уже отслежен
-        # Для этого используем метаданные бота (в реальной реализации sub-service
-        # должен хранить состояние чатов)
-        # Сейчас просто инкрементируем count
-        new_count = (bot.count or 0) + 1
-        updated_bot = await self.update_bot(bot.uuid, OnlyEditable(count=new_count))
-        
-        if updated_bot:
-            return True, new_count
-        return False, bot.count
+class LimitsUOW:
+    def __init__(self, uuid: str | UUID, service: LimitsService):
+        self.uuid = UUID(uuid) if isinstance(uuid, str) else uuid
+        self.service = service
 
-    async def health_check(self) -> bool:
-        """Проверить доступность sub-service."""
-        try:
-            response = await self.http_client.post("/health")
-            return response.status_code == 200
-        except httpx.HTTPError:
-            return False
+    async def get_bot(self) -> BotConfigWithEditable | None:
+        return await self.service.get_bot(self.uuid)
+
+    async def increment_usage(self) -> BotConfigWithEditable:
+        return await self.service.increment_usage(self.uuid)
+
+    async def decrement_usage(self) -> BotConfigWithEditable:
+        return await self.service.decrement_usage(self.uuid)
