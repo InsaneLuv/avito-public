@@ -1,7 +1,12 @@
 import os
 import sys
 
+from aiogram import Bot
+from aiogram.client.default import DefaultBotProperties
+
 from app.prompts.read import PromptEditor
+from app.services.limits import LimitsService, LimitsUOW
+from app.services.notify import TGNotificator
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -38,6 +43,26 @@ def openai_api_token():
 
 
 @pytest.fixture(scope="session")
+def bot_uuid():
+    return os.getenv("BOT_UUID")
+
+@pytest.fixture(scope="session")
+def token():
+    return os.getenv("TG_BOT_TOKEN")
+
+@pytest.fixture(scope="function")
+async def limits_service():
+    client = LimitsService()
+    return client
+
+
+@pytest.fixture(scope="function")
+async def limits_uow(limits_service, bot_uuid):
+    client = LimitsUOW(bot_uuid, service=limits_service)
+    return client
+
+
+@pytest.fixture(scope="session")
 async def httpx_client_proxied() -> AsyncGenerator[AsyncClient, None]:
     """Создаем HTTP клиент с прокси для всей сессии."""
     proxy = f"http://{SQUID_PROXY_USER}:{SQUID_PROXY_PASSWORD}@{SQUID_PROXY_HOST}:{SQUID_PROXY_PORT}"
@@ -60,20 +85,27 @@ async def openai(openai_api_token, httpx_client_proxied):
     async with AsyncOpenAI(api_key=openai_api_token, http_client=httpx_client_proxied, timeout=600) as client:
         yield client
 
+
 @pytest.fixture(scope="session")
 async def prompts_reader():
     client = PromptEditor()
     return client
 
 @pytest.fixture(scope="session")
+async def bot(token):
+    return Bot(token, default=DefaultBotProperties(link_preview_is_disabled=True, parse_mode='HTML'))
+
+@pytest.fixture(scope="session")
+async def tg_notificator(bot: Bot):
+    return TGNotificator(bot)
+
+
+@pytest.fixture(scope="session")
 async def prompt(prompts_reader):
     return await prompts_reader.read_text("text.md")
 
 
-
 @pytest.fixture(scope="function")
-async def avito_bl(avito, openai, prompt):
-    client = AvitoBL(avito, openai, prompt)
+async def avito_bl(avito, openai, prompt, limits_uow):
+    client = AvitoBL(avito=avito, openai=openai, prompt=prompt, limits_service=limits_uow)
     return client
-
-
