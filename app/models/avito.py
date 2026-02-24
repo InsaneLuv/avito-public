@@ -104,7 +104,7 @@ class Message(BaseModel):
 
     @property
     def from_ai(self) -> bool:
-        return "‎" in self.content.text
+        return "‎" in self.content.text if self.content.text else False
 
     @property
     def as_conversation(self):
@@ -158,6 +158,16 @@ class Chat(BaseModel):
     messages: list[Message] | None = Field(default_factory=list)
 
     @property
+    def is_testing(self) -> bool:
+        if not self.enriched:
+            raise ValueError("Chat not enriched with messages")
+        for message in self.messages:
+            if message.content.text and "test" in message.content.text.lower():
+                return True
+        return False
+
+
+    @property
     def url(self) -> str:
         return f"https://www.avito.ru/profile/messenger/channel/{self.id}"
 
@@ -173,7 +183,8 @@ class Chat(BaseModel):
             raise ValueError("Chat not enriched with messages")
         conversation_history = []
         for msg in self.messages:
-            conversation_history.append(msg.as_conversation)
+            if msg.author_id != 0:
+                conversation_history.append(msg.as_conversation)
         conversation_history.reverse()
         if self.context:
             if self.context.value.title:
@@ -184,6 +195,14 @@ class Chat(BaseModel):
                         "content": f"Объявление: {self.context.value.title}. Цена: {self.context.value.price_string}. Ссылка: {self.context.value.url}"
                     }
                 )
+        if self.user.name:
+            conversation_history.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": f"Никнейм пользователя: {self.user.name}"
+                }
+            )
         return conversation_history
 
     @property
@@ -191,6 +210,16 @@ class Chat(BaseModel):
         if not self.enriched:
             raise ValueError("Chat not enriched with messages")
         return [msg for msg in self.messages if msg.direction == "out"]
+
+    @property
+    def outgoing_messages(self) -> list[Message]:
+        return self.messages_sent
+
+    @property
+    def incoming_messages(self) -> list[Message]:
+        if not self.enriched:
+            raise ValueError("Chat not enriched with messages")
+        return [msg for msg in self.messages if msg.direction == "in"]
 
     @property
     def enriched(self) -> bool:
@@ -215,6 +244,7 @@ class Chat(BaseModel):
                 required = False
                 break
         return required
+
 
     @property
     def company(self) -> User:

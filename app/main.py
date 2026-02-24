@@ -1,20 +1,33 @@
 from contextlib import asynccontextmanager
 
-from dishka import make_async_container
-from dishka.integrations.fastapi import setup_dishka, FastapiProvider
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
+from taskiq import InMemoryBroker, AsyncBroker
 
 from app.core.config import get_app_settings
 from app.core.providers import ConfigProvider, ServiceProvider
+from app.tasks.base import broker, avito_bl_exec
+scheduler = AsyncIOScheduler()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    if not broker.is_worker_process:
+        await broker.startup()
+
+    scheduler.start()
+    scheduler.add_job(avito_bl_exec.kiq, 'interval', seconds=5)
     yield
+    if not broker.is_worker_process:
+        await broker.shutdown()
+
+    scheduler.shutdown()
 
 
 def setup_dependencies(app: FastAPI):
+    from dishka import make_async_container
+    from dishka.integrations.fastapi import setup_dishka, FastapiProvider
     container = make_async_container(
         ConfigProvider("prod"),
         ServiceProvider(),
@@ -24,11 +37,24 @@ def setup_dependencies(app: FastAPI):
     return container
 
 
+def setup_dependencies_taskiq(_broker: AsyncBroker):
+    from dishka import make_async_container
+    from dishka.integrations.taskiq import setup_dishka, TaskiqProvider
+    container = make_async_container(
+        ConfigProvider("prod"),
+        ServiceProvider(),
+        TaskiqProvider()
+    )
+    setup_dishka(container, broker=_broker)
+    return container
+
+
 def get_application() -> FastAPI:
     settings = get_app_settings()
 
     application = FastAPI(**settings.app.fastapi_kwargs, lifespan=lifespan)
     setup_dependencies(application)
+    setup_dependencies_taskiq(broker)
 
     application.add_middleware(
         CORSMiddleware,

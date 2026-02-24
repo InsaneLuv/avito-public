@@ -1,6 +1,5 @@
 import asyncio
-import hashlib
-import json
+import traceback
 from datetime import datetime, timedelta
 from functools import wraps
 from typing import Any, Callable, get_type_hints, get_args, Union, get_origin
@@ -14,6 +13,7 @@ from app.models.avito import ChatsPayloadFilter, ChatsResponse, ChatTypeEnum, Me
     SimpleActionResponse, \
     SubscribtionsResponse, UserData, Chat, FailedResponse
 from app.services.limits import LimitsUOW
+from app.services.notify import TGNotificator
 
 
 def with_token_refresh(func: Callable) -> Callable:
@@ -219,14 +219,14 @@ class AvitoBL:
             avito: Avito,
             openai: AsyncOpenAI,
             prompt: str,
-            limits_service=None,
-            bot_uuid: str = None,
+            tg_notificator: TGNotificator,
+            limits_service: LimitsUOW,
     ):
         self.avito = avito
         self.openai = openai
         self.prompt = prompt
         self.limits: LimitsUOW = limits_service
-        self.bot_uuid = bot_uuid
+        self.tg_notificator = tg_notificator
 
     async def not_answered_chats(self) -> list[Chat]:
         r = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
@@ -243,13 +243,23 @@ class AvitoBL:
         await asyncio.gather(*tasks)
         return chats
 
+    async def gen_answer(self, chat: Chat):
+        messages = chat.as_conversation
+        messages.insert(0, {"role": "system", "content": self.prompt})
+
+        response = await self.openai.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+        )
+        answer = response.choices[0].message.content
+        return answer
+
     async def meta(self):
         not_answered_chats = await self.not_answered_chats()
         for chat in not_answered_chats:
             print(
                 f"{chat.user.name} ({chat.user.id}): {chat.id}"
             )
-            print(chat)
         if not_answered_chats:
             print(
                 f"Всего неотвеченных чатов: {len(not_answered_chats)}"
@@ -261,19 +271,63 @@ class AvitoBL:
         print(
             f"Всего обогащенных чатов: {len(enriched)}"
         )
+        required = [chat for chat in enriched if chat.ai_assist_required]
 
-        ai_assisted = [chat for chat in enriched if chat.ai_assisted]
-        ai_assist_required = [chat for chat in enriched if chat.ai_assist_required]
+        # Разделяем на две группы
+        first_time_assist = [chat for chat in required if not chat.ai_assisted]  # Требуется впервые
+        already_assisted = [chat for chat in required if chat.ai_assisted]  # Уже был ассистент
 
-        if ai_assist_required:
-            print(
-                f"Чатов, впервые требующих ответа ИИ: {len(ai_assist_required)}"
-            )
+        # Для не-тестовых чатов можно добавить отдельную логику если нужно
+        # Например, можно фильтровать по is_testing перед обработкой
+
+
+        print(f"Всего чатов где требуется аи ассистент впервые: {len(first_time_assist)}")
+        if first_time_assist:
+
             bot = await self.limits.get_bot()
-            if not bot.remain:
-                print(f"Закончились лимиты на ответы ИИ.")
 
-        for chat in ai_assisted:
-            print(
-                f"{chat.user.name} ({chat.user.id}): {chat.id}"
-            )
+            # Определяем сколько можем обработать с учетом лимита
+            if bot.remain > 0:
+                chats_to_answer_with_increment = first_time_assist[:bot.remain]
+
+                for chat in chats_to_answer_with_increment:
+                    if not chat.is_testing:
+                        print(f"NOT FOR TEST: {chat.user.name} ({chat.user.id}): {chat.id}")
+                        continue
+
+                    answered = False
+                    try:
+                        answer = await self.gen_answer(chat)
+                        await self.avito.send_message(chat_id=chat.id, text=answer)
+                        answered = True
+                    except Exception as e:
+                        print(traceback.format_exc())
+                        continue
+
+                    if answered:
+                        await self.limits.increment_usage()
+                        await self.tg_notificator.new_assist(
+                            chat_url=chat.url,
+                            ad_url=chat.ad_url,
+                            last_message_content=chat.messages[-1].content.text if chat.messages[-1].content else None,
+                            ai_assistant_content=answer
+                        )
+
+        print(f"Всего частов где уже был аи ассистент: {len(already_assisted)}")
+        if already_assisted:
+
+
+            for chat in already_assisted:
+                if not chat.is_testing:
+                    print(f"NOT FOR TEST: {chat.user.name} ({chat.user.id}): {chat.id}")
+                    continue
+
+                try:
+                    answer = await self.gen_answer(chat)
+                    print(chat)
+                    print(answer)
+                    await self.avito.send_message(chat_id=chat.id, text=answer)
+                    # Здесь НЕ вызываем increment_usage()
+                except Exception as e:
+                    print(traceback.format_exc())
+                    continue

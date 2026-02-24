@@ -46,9 +46,11 @@ def openai_api_token():
 def bot_uuid():
     return os.getenv("BOT_UUID")
 
+
 @pytest.fixture(scope="session")
 def token():
     return os.getenv("TG_BOT_TOKEN")
+
 
 @pytest.fixture(scope="function")
 async def limits_service():
@@ -66,7 +68,7 @@ async def limits_uow(limits_service, bot_uuid):
 async def httpx_client_proxied() -> AsyncGenerator[AsyncClient, None]:
     """Создаем HTTP клиент с прокси для всей сессии."""
     proxy = f"http://{SQUID_PROXY_USER}:{SQUID_PROXY_PASSWORD}@{SQUID_PROXY_HOST}:{SQUID_PROXY_PORT}"
-    async with AsyncClient(timeout=600) as client:
+    async with AsyncClient(timeout=600, proxy=proxy) as client:
         yield client
 
 
@@ -91,9 +93,18 @@ async def prompts_reader():
     client = PromptEditor()
     return client
 
+
+@pytest.fixture(scope="session")
+async def httpx_client() -> AsyncGenerator[AsyncClient, None]:
+    """Создаем HTTP клиент с прокси для всей сессии."""
+    async with AsyncClient(timeout=600) as client:
+        yield client
+
+
 @pytest.fixture(scope="session")
 async def bot(token):
     return Bot(token, default=DefaultBotProperties(link_preview_is_disabled=True, parse_mode='HTML'))
+
 
 @pytest.fixture(scope="session")
 async def tg_notificator(bot: Bot):
@@ -106,6 +117,7 @@ async def prompt(prompts_reader):
 
 
 @pytest.fixture(scope="function")
-async def avito_bl(avito, openai, prompt, limits_uow):
-    client = AvitoBL(avito=avito, openai=openai, prompt=prompt, limits_service=limits_uow)
+async def avito_bl(avito, openai, prompt, limits_uow, tg_notificator):
+    client = AvitoBL(avito=avito, openai=openai, prompt=prompt, limits_service=limits_uow,
+                     tg_notificator=tg_notificator)
     return client

@@ -12,7 +12,7 @@ class LimitsService:
     Общается с sub-service по HTTP (localhost:8000).
     """
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8923"):
+    def __init__(self, base_url: str = "http://127.0.0.1:8031"):
         self.base_url = base_url.rstrip("/")
         self._http_client: httpx.AsyncClient | None = None
 
