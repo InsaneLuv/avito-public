@@ -4,6 +4,7 @@ from starlette.responses import FileResponse
 
 from app.core.config import AppSettings
 from app.prompts.read import PromptEditor
+from app.services.avito import AvitoBL
 
 router = APIRouter()
 read_router = APIRouter(tags=["Прочесть промпт"], route_class=DishkaRoute)
@@ -23,7 +24,7 @@ async def _(code: str, settings: FromDishka[AppSettings], editor: FromDishka[Pro
 
 
 @replace_router.put("/prompt/{code}")
-async def _(code: str, settings: FromDishka[AppSettings], editor: FromDishka[PromptEditor],
+async def _(code: str, settings: FromDishka[AppSettings], editor: FromDishka[PromptEditor], avito: FromDishka[AvitoBL],
             file: UploadFile = File(description="Прикрепите новый файл промпта")):
     """
     Замена `текущего` промпта новым.
@@ -38,6 +39,7 @@ async def _(code: str, settings: FromDishka[AppSettings], editor: FromDishka[Pro
         content = await file.read()
         text_content = content.decode('utf-8')
         await editor.write_text(text_content)
+        avito.update_prompt(text_content)
         return {
             "status": "Файл успешно загружен!",
         }

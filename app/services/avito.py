@@ -228,6 +228,9 @@ class AvitoBL:
         self.limits: LimitsUOW = limits_service
         self.tg_notificator = tg_notificator
 
+    def update_prompt(self, new_text: str):
+        self.prompt = new_text
+
     async def not_answered_chats(self) -> list[Chat]:
         r = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
         return r.not_answered_chats
