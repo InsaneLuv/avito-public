@@ -78,11 +78,11 @@ class ServiceProvider(Provider):
             limits_service: LimitsUOW,
             notifier: TGNotificator
     ) -> AvitoBL:
-        prompt = await editor.read_text("text.md")
+        print("new avito")
         return AvitoBL(
             avito=avito,
             openai=openai_client,
-            prompt=prompt,
+            editor=editor,
             limits_service=limits_service,
             tg_notificator=notifier
         )

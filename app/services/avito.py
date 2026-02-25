@@ -12,6 +12,7 @@ from app.models.avito import ChatsPayloadFilter, ChatsResponse, ChatTypeEnum, Me
     SendMessagePayload, \
     SimpleActionResponse, \
     SubscribtionsResponse, UserData, Chat, FailedResponse
+from app.prompts.read import PromptEditor
 from app.services.limits import LimitsUOW
 from app.services.notify import TGNotificator
 
@@ -218,18 +219,16 @@ class AvitoBL:
             self,
             avito: Avito,
             openai: AsyncOpenAI,
-            prompt: str,
+            editor: PromptEditor,
             tg_notificator: TGNotificator,
             limits_service: LimitsUOW,
     ):
         self.avito = avito
         self.openai = openai
-        self.prompt = prompt
+        self.editor = editor
+        self.prompt = None
         self.limits: LimitsUOW = limits_service
         self.tg_notificator = tg_notificator
-
-    def update_prompt(self, new_text: str):
-        self.prompt = new_text
 
     async def not_answered_chats(self) -> list[Chat]:
         r = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
@@ -258,6 +257,7 @@ class AvitoBL:
         return answer
 
     async def meta(self):
+        self.prompt = await self.editor.read_text("text.md")
         not_answered_chats = await self.not_answered_chats()
         for chat in not_answered_chats:
             print(

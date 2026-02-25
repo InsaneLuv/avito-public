@@ -60,7 +60,10 @@ class PromptEditor:
         file_path = file_path.resolve()
 
         try:
-            async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
+            # Нормализуем переносы перед записью
+            content = content.replace('\r\n', '\n')
+
+            async with aiofiles.open(file_path, 'w', encoding='utf-8', newline='\n') as f:
                 await f.write(content)
         except Exception as e:
             raise IOError(f"Error writing file {file_path}: {e}")
