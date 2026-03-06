@@ -1,7 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
 
-import aiogram
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dishka import FromDishka
 from dishka.integrations.aiogram import AiogramProvider
@@ -16,9 +15,8 @@ from app.prompts.read import PromptEditor
 from app.tasks.base import broker, avito_bl_exec
 
 scheduler = AsyncIOScheduler()
-from aiogram import Bot, Dispatcher, F, types, Router
+from aiogram import Bot, Dispatcher, F, Router
 from aiogram.types import Message
-from aiogram.filters import Command
 
 dp = Dispatcher()
 router = Router()
@@ -110,8 +108,3 @@ def get_application() -> FastAPI:
 
 
 app = get_application()
-
-if __name__ == '__main__':
-    import uvicorn
-
-    uvicorn.run(app, host="127.0.0.1", port=8000)
