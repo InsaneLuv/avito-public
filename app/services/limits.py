@@ -12,30 +12,17 @@ class LimitsService:
     Общается с sub-service по HTTP (localhost:8000).
     """
 
-    def __init__(self, base_url: str = "http://127.0.0.1:8031"):
-        self.base_url = base_url.rstrip("/")
-        self._http_client: httpx.AsyncClient | None = None
-
-    @property
-    def http_client(self) -> httpx.AsyncClient:
-        if self._http_client is None or self._http_client.is_closed:
-            self._http_client = httpx.AsyncClient(base_url=self.base_url, timeout=10.0)
-        return self._http_client
-
-    async def close(self):
-        """Закрыть HTTP клиент."""
-        if self._http_client and not self._http_client.is_closed:
-            await self._http_client.aclose()
+    def __init__(self, base_url):
+        self.base_url = base_url
+        print(self.base_url)
+        self.http_client = httpx.AsyncClient(base_url=self.base_url, timeout=10.0)
 
     async def get_bot(self, uuid: UUID) -> Optional[BotConfigWithEditable]:
         """Получить информацию о боте по UUID."""
-        try:
-            response = await self.http_client.get(f"/bot/{uuid}")
-            response.raise_for_status()
-            data = response.json()
-            return BotConfigWithEditable(**data)
-        except httpx.HTTPError:
-            return None
+        response = await self.http_client.get(f"/bot/{uuid}")
+        response.raise_for_status()
+        data = response.json()
+        return BotConfigWithEditable(**data)
 
     async def increment_usage(self, uuid: UUID) -> Optional[BotConfigWithEditable]:
         response = await self.http_client.patch(f"/bot/{uuid}/count/increment", )
@@ -56,6 +43,7 @@ class LimitsUOW:
         self.service = service
 
     async def get_bot(self) -> BotConfigWithEditable | None:
+        print(f"get bot with uuid {self.uuid}" )
         return await self.service.get_bot(self.uuid)
 
     async def increment_usage(self) -> BotConfigWithEditable:

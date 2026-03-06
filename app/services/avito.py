@@ -258,6 +258,9 @@ class AvitoBL:
 
     async def meta(self):
         self.prompt = await self.editor.read_text("text.md")
+        bot = await self.limits.get_bot()
+        print(bot)
+
         not_answered_chats = await self.not_answered_chats()
         for chat in not_answered_chats:
             print(

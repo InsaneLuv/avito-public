@@ -19,4 +19,4 @@ class ProdAppSettings(AppBase):
     BOT_UUID: Secret[str] = Field()
     TG_BOT_TOKEN: Secret[str] = Field()
 
-    LIMITS_SERVICE_URL: str = Field(default="http://127.0.0.1:8031", description="URL sub-service для управления лимитами")
+    LIMITS_SERVICE_URL: str = Field(description="URL sub-service для управления лимитами")
