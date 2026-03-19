@@ -246,12 +246,11 @@ class AvitoBL:
         return chats
 
     async def gen_answer(self, chat: Chat):
-        messages = chat.as_conversation
-        messages.insert(0, {"role": "system", "content": self.prompt})
-
+        messages = chat.as_conversation_with_prompt(self.prompt)
         response = await self.openai.chat.completions.create(
             model="gpt-4o-mini",
             messages=messages,
+            temperature=0.7,
         )
         answer = response.choices[0].message.content
         return answer
@@ -259,7 +258,6 @@ class AvitoBL:
     async def meta(self):
         self.prompt = await self.editor.read_text("text.md")
         bot = await self.limits.get_bot()
-        print(bot)
 
         not_answered_chats = await self.not_answered_chats()
         for chat in not_answered_chats:
@@ -282,7 +280,15 @@ class AvitoBL:
         # Разделяем на две группы
         first_time_assist = [chat for chat in required if not chat.ai_assisted]  # Требуется впервые
         already_assisted = [chat for chat in required if chat.ai_assisted]  # Уже был ассистент
+        #
+        # for chat in already_assisted:
+        #     # messages = chat.as_conversation
+        #     # messages.insert(0, {"role": "system", "content": self.prompt})
+        #     messages = chat.as_conversation_with_prompt(self.prompt)
+        #     for m in messages:
+        #         print(m)
 
+        # return
         # Для не-тестовых чатов можно добавить отдельную логику если нужно
         # Например, можно фильтровать по is_testing перед обработкой
 

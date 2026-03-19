@@ -177,6 +177,12 @@ class Chat(BaseModel):
             return self.context.value.url
         return None
 
+    def as_conversation_with_prompt(self, prompt: str):
+        conversation_history = self.as_conversation
+        conversation_history[0]["content"] += f" | {prompt}"
+        return conversation_history
+
+
     @property
     def as_conversation(self) -> list[dict]:
         if not self.enriched:
@@ -186,23 +192,33 @@ class Chat(BaseModel):
             if msg.author_id != 0:
                 conversation_history.append(msg.as_conversation)
         conversation_history.reverse()
+        content = ""
         if self.context:
             if self.context.value.title:
-                conversation_history.insert(
-                    0,
-                    {
-                        "role": "system",
-                        "content": f"Объявление: {self.context.value.title}. Цена: {self.context.value.price_string}. Ссылка: {self.context.value.url}"
-                    }
-                )
+                # conversation_history.insert(
+                #     0,
+                #     {
+                #         "role": "system",
+                #         "content": f"Объявление: {self.context.value.title}. Цена: {self.context.value.price_string}"
+                #     }
+                # )
+                content += f"Объявление: {self.context.value.title}. Цена: {self.context.value.price_string}"
         if self.user.name:
-            conversation_history.insert(
-                0,
-                {
-                    "role": "system",
-                    "content": f"Никнейм пользователя: {self.user.name}"
-                }
-            )
+            # conversation_history.insert(
+            #     0,
+            #     {
+            #         "role": "system",
+            #         "content": f"Никнейм пользователя: {self.user.name}"
+            #     }
+            # )
+            content += f" Никнейм пользователя: {self.user.name}"
+        conversation_history.insert(
+            0,
+            {
+                "role": "system",
+                "content": content
+            }
+        )
         return conversation_history
 
     @property
