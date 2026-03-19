@@ -336,7 +336,7 @@ class AvitoBL:
 
                 try:
                     answer = await self.gen_answer(chat)
-                    print(chat)
+                    print(chat.last_message.content.text)
                     print(answer)
                     await self.avito.send_message(chat_id=chat.id, text=answer)
                     # Здесь НЕ вызываем increment_usage()

@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
     bot = Bot(token=settings.app.TG_BOT_TOKEN.get_secret_value())
     asyncio.create_task(dp.start_polling(bot))
     scheduler.start()
-    scheduler.add_job(avito_bl_exec.kiq, 'interval', seconds=10)
+    scheduler.add_job(avito_bl_exec.kiq, 'interval', seconds=15)
     await avito_bl_exec.kiq()
     yield
     if not broker.is_worker_process:
