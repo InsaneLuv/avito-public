@@ -19,30 +19,30 @@ scheduler = AsyncIOScheduler()
 from aiogram import Bot, Dispatcher, F, types, Router
 from aiogram.types import Message
 from aiogram.filters import Command
-
-dp = Dispatcher()
-router = Router()
-
-
-@router.message(F.document.file_name.endswith(".md"))
-@inject
-async def handle_md_file(message: Message, bot: Bot, editor: FromDishka[PromptEditor]):
-    file = await bot.get_file(message.document.file_id)
-    content = await bot.download_file(file.file_path)
-    text = content.read().decode("utf-8")
-    await editor.write_text(text)
-    await message.answer(f"Готово!")
+#
+# dp = Dispatcher()
+# router = Router()
+#
+#
+# @router.message(F.document.file_name.endswith(".md"))
+# @inject
+# async def handle_md_file(message: Message, bot: Bot, editor: FromDishka[PromptEditor]):
+#     file = await bot.get_file(message.document.file_id)
+#     content = await bot.download_file(file.file_path)
+#     text = content.read().decode("utf-8")
+#     await editor.write_text(text)
+#     await message.answer(f"Готово!")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if not broker.is_worker_process:
         await broker.startup()
-    settings = get_app_settings()
-    setup_dependencies_aiogram()
-    dp.include_router(router)
-    bot = Bot(token=settings.app.TG_BOT_TOKEN.get_secret_value())
-    asyncio.create_task(dp.start_polling(bot))
+    # settings = get_app_settings()
+    # setup_dependencies_aiogram()
+    # dp.include_router(router)
+    # bot = Bot(token=settings.app.TG_BOT_TOKEN.get_secret_value())
+    # asyncio.create_task(dp.start_polling(bot))
     scheduler.start()
     scheduler.add_job(avito_bl_exec.kiq, 'interval', seconds=15)
     await avito_bl_exec.kiq()
