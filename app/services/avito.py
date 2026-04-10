@@ -303,10 +303,6 @@ class AvitoBL:
                 chats_to_answer_with_increment = first_time_assist[:bot.remain]
 
                 for chat in chats_to_answer_with_increment:
-                    if not chat.is_testing:
-                        print(f"NOT FOR TEST: {chat.user.name} ({chat.user.id}): {chat.id}")
-                        continue
-
                     answered = False
                     try:
                         answer = await self.gen_answer(chat)
@@ -330,10 +326,6 @@ class AvitoBL:
 
 
             for chat in already_assisted:
-                if not chat.is_testing:
-                    print(f"NOT FOR TEST: {chat.user.name} ({chat.user.id}): {chat.id}")
-                    continue
-
                 try:
                     answer = await self.gen_answer(chat)
                     print(chat.last_message.content.text)
