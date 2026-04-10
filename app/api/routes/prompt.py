@@ -39,7 +39,6 @@ async def _(code: str, settings: FromDishka[AppSettings], editor: FromDishka[Pro
         content = await file.read()
         text_content = content.decode('utf-8')
         await editor.write_text(text_content)
-        avito.update_prompt(text_content)
         return {
             "status": "Файл успешно загружен!",
         }
