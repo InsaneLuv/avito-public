@@ -2,6 +2,7 @@ from typing import Literal, AsyncGenerator
 
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from dishka import provide, Provider, Scope
 from httpx import AsyncClient
 from openai import AsyncOpenAI
@@ -62,9 +63,13 @@ class ServiceProvider(Provider):
 
     @provide(scope=Scope.APP)
     async def bot(self, settings: AppSettings) -> Bot:
-        return Bot(settings.app.TG_BOT_TOKEN.get_secret_value(),
-                   default=DefaultBotProperties(link_preview_is_disabled=True, parse_mode='HTML'))
-
+        proxy = f"http://{settings.app.SQUID_PROXY_USER.get_secret_value()}:{settings.app.SQUID_PROXY_PASSWORD.get_secret_value()}@{settings.app.SQUID_PROXY_HOST.get_secret_value()}:{settings.app.SQUID_PROXY_PORT.get_secret_value()}"
+        session = AiohttpSession(proxy=proxy)
+        return Bot(
+            token=settings.app.TG_BOT_TOKEN.get_secret_value(),
+            default=DefaultBotProperties(link_preview_is_disabled=True, parse_mode='HTML'),
+            session=session
+        )
     @provide(scope=Scope.APP)
     async def tg_notificator(self, bot: Bot) -> TGNotificator:
         return TGNotificator(bot)
