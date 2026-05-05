@@ -107,6 +107,10 @@ class Message(BaseModel):
         return "‎" in self.content.text if self.content.text else False
 
     @property
+    def is_system(self) -> bool:
+        return "системное сообщение" in self.content.text.lower() if self.content.text else False
+
+    @property
     def as_conversation(self):
         text = self.content.text
         link = self.content.link
@@ -178,8 +182,9 @@ class Chat(BaseModel):
         return None
 
     def as_conversation_with_prompt(self, prompt: str):
+        # Статичный промпт идёт первым — стабильный префикс для кеширования токенов
         conversation_history = self.as_conversation
-        conversation_history[0]["content"] += f" | {prompt}"
+        conversation_history.insert(0, {"role": "system", "content": prompt})
         return conversation_history
 
 
