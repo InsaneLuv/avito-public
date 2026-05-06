@@ -280,18 +280,6 @@ class AvitoBL:
         # Разделяем на две группы
         first_time_assist = [chat for chat in required if not chat.ai_assisted]  # Требуется впервые
         already_assisted = [chat for chat in required if chat.ai_assisted]  # Уже был ассистент
-        #
-        # for chat in already_assisted:
-        #     # messages = chat.as_conversation
-        #     # messages.insert(0, {"role": "system", "content": self.prompt})
-        #     messages = chat.as_conversation_with_prompt(self.prompt)
-        #     for m in messages:
-        #         print(m)
-
-        # return
-        # Для не-тестовых чатов можно добавить отдельную логику если нужно
-        # Например, можно фильтровать по is_testing перед обработкой
-
 
         print(f"Всего чатов где требуется аи ассистент впервые: {len(first_time_assist)}")
         if first_time_assist:

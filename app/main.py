@@ -1,37 +1,15 @@
-import asyncio
 from contextlib import asynccontextmanager
 
-import aiogram
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from dishka import FromDishka
-from dishka.integrations.aiogram import AiogramProvider
-from dishka.integrations.aiogram import inject
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from taskiq import AsyncBroker
 
 from app.core.config import get_app_settings
 from app.core.providers import ConfigProvider, ServiceProvider
-from app.prompts.read import PromptEditor
-from app.tasks.base import broker, avito_bl_exec
+from app.tasks.base import avito_bl_exec, broker
 
 scheduler = AsyncIOScheduler()
-from aiogram import Bot, Dispatcher, F, types, Router
-from aiogram.types import Message
-from aiogram.filters import Command
-#
-# dp = Dispatcher()
-# router = Router()
-#
-#
-# @router.message(F.document.file_name.endswith(".md"))
-# @inject
-# async def handle_md_file(message: Message, bot: Bot, editor: FromDishka[PromptEditor]):
-#     file = await bot.get_file(message.document.file_id)
-#     content = await bot.download_file(file.file_path)
-#     text = content.read().decode("utf-8")
-#     await editor.write_text(text)
-#     await message.answer(f"Готово!")
 
 
 @asynccontextmanager
@@ -44,25 +22,13 @@ async def lifespan(app: FastAPI):
     # bot = Bot(token=settings.app.TG_BOT_TOKEN.get_secret_value())
     # asyncio.create_task(dp.start_polling(bot))
     scheduler.start()
-    scheduler.add_job(avito_bl_exec.kiq, 'interval', seconds=15)
+    scheduler.add_job(avito_bl_exec.kiq, 'interval', seconds=25)
     await avito_bl_exec.kiq()
     yield
     if not broker.is_worker_process:
         await broker.shutdown()
 
     scheduler.shutdown()
-
-
-def setup_dependencies_aiogram():
-    from dishka import make_async_container
-    from dishka.integrations.aiogram import setup_dishka
-    container = make_async_container(
-        ConfigProvider("prod"),
-        ServiceProvider(),
-        AiogramProvider()
-    )
-    setup_dishka(container, router, auto_inject=True)
-    return container
 
 
 def setup_dependencies(app: FastAPI):

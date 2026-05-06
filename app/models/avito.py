@@ -170,7 +170,6 @@ class Chat(BaseModel):
                 return True
         return False
 
-
     @property
     def url(self) -> str:
         return f"https://www.avito.ru/profile/messenger/channel/{self.id}"
@@ -182,11 +181,9 @@ class Chat(BaseModel):
         return None
 
     def as_conversation_with_prompt(self, prompt: str):
-        # Статичный промпт идёт первым — стабильный префикс для кеширования токенов
         conversation_history = self.as_conversation
-        conversation_history.insert(0, {"role": "system", "content": prompt})
+        conversation_history[0]["content"] += f" | {prompt}"
         return conversation_history
-
 
     @property
     def as_conversation(self) -> list[dict]:
@@ -265,7 +262,6 @@ class Chat(BaseModel):
                 required = False
                 break
         return required
-
 
     @property
     def company(self) -> User:
