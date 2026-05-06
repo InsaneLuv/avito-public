@@ -232,7 +232,7 @@ class AvitoBL:
 
     async def not_answered_chats(self) -> list[Chat]:
         r = await self.avito.chats(chat_types=[ChatTypeEnum.u2i], limit=10)
-        return [chat for chat in r.not_answered_chats if not chat.last_message.is_system]
+        return [chat for chat in r.not_answered_chats if not chat.is_system]
 
     async def enrich_message(self, chat: Chat) -> Chat:
         r = await self.avito.get_chat_messages(chat.id)

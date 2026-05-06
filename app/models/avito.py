@@ -171,6 +171,15 @@ class Chat(BaseModel):
         return False
 
     @property
+    def is_system(self) -> bool:
+        if not self.enriched:
+            raise ValueError("Chat not enriched with messages")
+        for message in self.messages:
+            if message.content.text and "системное" in message.content.text.lower():
+                return True
+        return False
+
+    @property
     def url(self) -> str:
         return f"https://www.avito.ru/profile/messenger/channel/{self.id}"
 
